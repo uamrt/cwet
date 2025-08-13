@@ -71,6 +71,7 @@ function Get-Token {
 }
 
 function Get-DeviceID {
+    Write-Log $hostname
     $filter = [System.Web.HttpUtility]::UrlEncode("hostname:'$hostname'")
     Get-Token
 
