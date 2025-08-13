@@ -89,6 +89,8 @@ function Get-DeviceID {
         Write-Log "DeviceID alınamadığı için script durduruldu"
         exit 1
     }
+
+    Write-Log "DeviceID: ($deviceId)"
 }
 
 function Add-Group {
