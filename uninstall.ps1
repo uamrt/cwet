@@ -1,7 +1,10 @@
 param(
     [string]$password,
     [string]$logDir,
-    [boolean]$restart = $false
+    [boolean]$restart = $false,
+    [string]$clientId, #Crowdstrike api key
+    [string]$clientSecret, #Crowdstrike api key
+    [string]$groupId #Crowdstrike statik grup adı
 )
 
 Set-ExecutionPolicy Bypass -Scope Process -Force
@@ -9,11 +12,12 @@ Set-ExecutionPolicy Bypass -Scope Process -Force
 $hostname = $env:COMPUTERNAME
 $timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 
-$localLogFolder = "C:\Windows\Temp"
-if (-not (Test-Path $localLogFolder)) {
-    New-Item -Path $localLogFolder -ItemType Directory -Force | Out-Null
-}
-$localLogFile = Join-Path $localLogFolder "$hostname`_$timestamp.log"
+$token = ""
+$deviceId = ""
+
+$global:uninstallResults = @()
+
+$localLogFile = Join-Path "C:\Windows\Temp" "$hostname`_$timestamp.log"
 
 # Network log yolu (opsiyonel)
 if ($logDir -and (Test-Path $logDir)) {
@@ -21,8 +25,6 @@ if ($logDir -and (Test-Path $logDir)) {
 } else {
     $networkLogFile = $null
 }
-
-$anyUninstalled = $false
 
 function Write-Log($message) {
     $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -41,7 +43,91 @@ function Write-Log($message) {
     }
 }
 
+function Is-CrowdStrikeInstalled {
+    $service = Get-Service -Name "csagent" -ErrorAction SilentlyContinue
+    return $service -ne $null
+}
+
+if (Is-CrowdStrikeInstalled) {
+    Write-Log "CrowdStrike Falcon Sensor kurulu olmadığı için script durduruldu"
+    exit 1
+}
+
+function Get-Token {
+    $tokenResponse = Invoke-RestMethod -Method Post `
+    -Uri "https://api.us-2.crowdstrike.com/oauth2/token" `
+    -Body @{
+        client_id     = $clientId
+        client_secret = $clientSecret
+    } `
+    -ContentType "application/x-www-form-urlencoded"
+
+    $global:token = $tokenResponse.access_token
+
+    if (-not $token) {
+        Write-Log "Token alınamadığı için script durduruldu"
+        exit 1
+    }
+}
+
+function Get-DeviceID {
+    $filter = [System.Web.HttpUtility]::UrlEncode("hostname:'$hostname'")
+    Get-Token
+
+    $deviceSearch = Invoke-RestMethod -Method Get `
+        -Uri "https://api.us-2.crowdstrike.com/devices/queries/devices/v1?filter=$filter" `
+        -Headers @{ "Authorization" = "Bearer $token" }
+
+    if ($deviceSearch.resources.Count -eq 0) {
+        Write-Log "Cihaz bulunamadı: $hostname"
+        exit 1
+    }
+
+    $global:deviceId = $deviceSearch.resources[0]
+    
+    if (-not $deviceId) {
+        Write-Log "DeviceID alınamadığı için script durduruldu"
+        exit 1
+    }
+}
+
+function Add-Group {
+    Get-DeviceID
+    $body = @{
+        ids = @($groupId)
+        action_parameters = @(
+            @{
+                name  = "filter"
+                value = "(device_id:['$deviceId'])"
+            }
+        )
+    }
+
+    $response = Invoke-RestMethod -Method Post `
+        -Uri "https://api.us-2.crowdstrike.com/devices/entities/host-group-actions/v1?action_name=add-hosts" `
+        -Headers @{
+            "Authorization" = "Bearer $token"
+            "Content-Type"  = "application/json"
+        } `
+        -Body ($body | ConvertTo-Json -Depth 4)
+
+    if ($response.errors) {
+        Write-Log "Gruba ekleme işleminde hata meydana geldi"
+        Write-Log "Hata kodu: $($response.errors[0].code)"
+        Write-Log "Hata mesajı: $($response.errors[0].message)"
+    }
+
+    Write-Log "Gruba Ekleme başarıyla sonuçlandı:" ($response | ConvertTo-Json -Depth 5)
+}
+
 function Uninstall-Product($productName, $passRequired = $true) {
+    $result = [PSCustomObject]@{
+        Product    = $productName
+        Has_App    = $false
+        Is_Removed = $false
+        Error      = $null
+    }
+
     try {
         $uninstall = gci "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall" |
             foreach { gp $_.PSPath } |
@@ -49,6 +135,8 @@ function Uninstall-Product($productName, $passRequired = $true) {
             select UninstallString
 
         if ($uninstall) {
+            $result.Has_App = $true
+
             $uninstallId = $uninstall.UninstallString -Replace "msiexec.exe","" -Replace "/I","" -Replace "/X",""
             $uninstallId = $uninstallId.Trim()
             
@@ -59,30 +147,34 @@ function Uninstall-Product($productName, $passRequired = $true) {
                 start-process "msiexec.exe" -arg "/X $uninstallId /qn /norestart" -Wait
             }
 
-            $global:anyUninstalled = $true
+            $result.Is_Removed = $true
             Write-Log "$productName başarıyla kaldırıldı."
         }
         else {
+
             Write-Log "$productName kaldırma için bulunamadı."
         }
     }
     catch {
+        $result.Error = $_
         Write-Log "$productName kaldırılırken hata oluştu: $_"
     }
+
+    $global:uninstallResults += $result
 }
 
 Uninstall-Product "ESET Endpoint Security" $true
 Uninstall-Product "ESET Inspect Connector" $true
 Uninstall-Product "ESET Management Agent" $false
 
-if ($anyUninstalled -and $restart) {
-    Write-Log "En az bir ürün kaldırıldı, 15 dakika içinde yeniden başlatma planlandı."
-    msg * "Bazı güvenlik yazılımları kaldırıldı. Bilgisayar 15 dakika içinde yeniden başlatılacaktır."
-    shutdown /r /t 900 /c "Bazı güvenlik yazılımları kaldırıldı. Bilgisayar yeniden başlatılacak."
-}
-elseif ($anyUninstalled) {
-    Write-Log "En az bir ürün kaldırıldı, yeniden başlatma yapılmayacak."
-}
-else {
-    Write-Log "Herhangi bir ürün kaldırılmadı."
+
+# Kaldırma sonuçlarını kontrol et
+$esetEndpointRemoved = ($global:uninstallResults | Where-Object { $_.Product -eq "ESET Endpoint Security" }).Is_Removed
+$esetInspectRemoved  = ($global:uninstallResults | Where-Object { $_.Product -eq "ESET Inspect Connector" }).Is_Removed
+
+if ($esetEndpointRemoved -and $esetInspectRemoved) {
+    Write-Log "Hem ESET Endpoint Security hem de ESET Inspect Connector kaldırıldı. CrowdStrike grubuna ekleme işlemi başlatılıyor."
+    Add-Group
+} else {
+    Write-Log "ESET ürünleri tam olarak kaldırılamadığı için CrowdStrike gruba ekleme işlemi yapılmadı."
 }
