@@ -48,7 +48,7 @@ function Is-CrowdStrikeInstalled {
     return $service -ne $null
 }
 
-if (Is-CrowdStrikeInstalled) {
+if (-not (Is-CrowdStrikeInstalled)) {
     Write-Log "CrowdStrike Falcon Sensor kurulu olmadığı için script durduruldu"
     exit 1
 }
