@@ -48,9 +48,13 @@ function Is-CrowdStrikeInstalled {
     return $service -ne $null
 }
 
-if (-not (Is-CrowdStrikeInstalled)) {
-    Write-Log "CrowdStrike Falcon Sensor kurulu olmadığı için script durduruldu"
-    exit 1
+function Is-EsetInstalled {
+    $app = gci "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall" |
+            foreach { gp $_.PSPath } |
+            ? { $_ -match "Eset" } |
+            select UninstallString
+
+    return $app
 }
 
 function Get-Token {
@@ -71,7 +75,6 @@ function Get-Token {
 }
 
 function Get-DeviceID {
-    Write-Log $hostname
     $filter = [System.Web.HttpUtility]::UrlEncode("hostname:'$hostname'")
     Get-Token
 
@@ -90,12 +93,9 @@ function Get-DeviceID {
         Write-Log "DeviceID alınamadığı için script durduruldu"
         exit 1
     }
-
-    Write-Log "DeviceID: ($deviceId)"
 }
 
 function Add-Group {
-    Get-DeviceID
     $body = @{
         ids = @($groupId)
         action_parameters = @(
@@ -118,9 +118,39 @@ function Add-Group {
         Write-Log "Gruba ekleme işleminde hata meydana geldi"
         Write-Log "Hata kodu: $($response.errors[0].code)"
         Write-Log "Hata mesajı: $($response.errors[0].message)"
+        exit 1
     }
 
     Write-Log "Gruba Ekleme başarıyla sonuçlandı:" ($response | ConvertTo-Json -Depth 5)
+}
+
+function Remove-Group {
+    $body = @{
+        ids = @($groupId)
+        action_parameters = @(
+            @{
+                name  = "filter"
+                value = "(device_id:['$deviceId'])"
+            }
+        )
+    }
+
+    $response = Invoke-RestMethod -Method Post `
+        -Uri "https://api.us-2.crowdstrike.com/devices/entities/host-group-actions/v1?action_name=remove-hosts" `
+        -Headers @{
+            "Authorization" = "Bearer $token"
+            "Content-Type"  = "application/json"
+        } `
+        -Body ($body | ConvertTo-Json -Depth 4)
+
+    if ($response.errors) {
+        Write-Log "Gruptan çıkarma işleminde hata meydana geldi"
+        Write-Log "Hata kodu: $($response.errors[0].code)"
+        Write-Log "Hata mesajı: $($response.errors[0].message)"
+        exit 1
+    }
+
+    Write-Log "Gruptan çıkarma başarıyla sonuçlandı:" ($response | ConvertTo-Json -Depth 5)
 }
 
 function Uninstall-Product($productName, $passRequired = $true) {
@@ -166,18 +196,25 @@ function Uninstall-Product($productName, $passRequired = $true) {
     $global:uninstallResults += $result
 }
 
+if (-not (Is-CrowdStrikeInstalled)) {
+    Write-Log "CrowdStrike Falcon Sensor kurulu olmadığı için script durduruldu"
+    exit 1
+}
+
+if (-not (Is-EsetInstalled)){
+    Write-Log "Eset kurulu olmadığı için script durduruldu"
+    exit 1
+}
+
+Get-DeviceID
+Add-Group
+
 Uninstall-Product "ESET Endpoint Security" $true
 Uninstall-Product "ESET Inspect Connector" $true
 Uninstall-Product "ESET Management Agent" $false
 
 
-# Kaldırma sonuçlarını kontrol et
-$esetEndpointRemoved = ($global:uninstallResults | Where-Object { $_.Product -eq "ESET Endpoint Security" }).Is_Removed
-$esetInspectRemoved  = ($global:uninstallResults | Where-Object { $_.Product -eq "ESET Inspect Connector" }).Is_Removed
-
-if ($esetEndpointRemoved -and $esetInspectRemoved) {
-    Write-Log "Hem ESET Endpoint Security hem de ESET Inspect Connector kaldırıldı. CrowdStrike grubuna ekleme işlemi başlatılıyor."
-    Add-Group
-} else {
-    Write-Log "ESET ürünleri tam olarak kaldırılamadığı için CrowdStrike gruba ekleme işlemi yapılmadı."
+if (Is-EsetInstalled){
+    Remove-Group
+    exit 1
 }
