@@ -124,35 +124,6 @@ function Add-Group {
     Write-Log "Gruba Ekleme başarıyla sonuçlandı:" ($response | ConvertTo-Json -Depth 5)
 }
 
-function Remove-Group {
-    $body = @{
-        ids = @($groupId)
-        action_parameters = @(
-            @{
-                name  = "filter"
-                value = "(device_id:['$global:deviceId'])"
-            }
-        )
-    }
-
-    $response = Invoke-RestMethod -Method Post `
-        -Uri "https://api.us-2.crowdstrike.com/devices/entities/host-group-actions/v1?action_name=remove-hosts" `
-        -Headers @{
-            "Authorization" = "Bearer $global:token"
-            "Content-Type"  = "application/json"
-        } `
-        -Body ($body | ConvertTo-Json -Depth 4)
-
-    if ($response.errors) {
-        Write-Log "Gruptan çıkarma işleminde hata meydana geldi"
-        Write-Log "Hata kodu: $($response.errors[0].code)"
-        Write-Log "Hata mesajı: $($response.errors[0].message)"
-        exit 1
-    }
-
-    Write-Log "Gruptan çıkarma başarıyla sonuçlandı:" ($response | ConvertTo-Json -Depth 5)
-}
-
 function Uninstall-Product($productName, $passRequired = $true) {
     $result = [PSCustomObject]@{
         Product    = $productName
