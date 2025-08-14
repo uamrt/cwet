@@ -49,11 +49,10 @@ function Is-CrowdStrikeInstalled {
 }
 
 function Is-EsetInstalled {
-    $app = gci "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall" |
-            foreach { gp $_.PSPath } |
-            ? { $_ -match "Eset" } |
-            select UninstallString
-
+    $app = Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall" |
+           ForEach-Object { Get-ItemProperty $_.PSPath } |
+           Where-Object { $_.DisplayName -match "^Eset" } |
+           Select-Object -ExpandProperty UninstallString -ErrorAction SilentlyContinue
     return $app
 }
 
