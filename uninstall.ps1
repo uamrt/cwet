@@ -68,7 +68,7 @@ function Get-Token {
 
     $global:token = $tokenResponse.access_token
 
-    if (-not $token) {
+    if (-not $global:token) {
         Write-Log "Token alınamadığı için script durduruldu"
         exit 1
     }
@@ -80,7 +80,7 @@ function Get-DeviceID {
 
     $deviceSearch = Invoke-RestMethod -Method Get `
         -Uri "https://api.us-2.crowdstrike.com/devices/queries/devices/v1?filter=$filter" `
-        -Headers @{ "Authorization" = "Bearer $token" }
+        -Headers @{ "Authorization" = "Bearer $global:token" }
 
     if ($deviceSearch.resources.Count -eq 0) {
         Write-Log "Cihaz bulunamadı: $hostname"
@@ -89,7 +89,7 @@ function Get-DeviceID {
 
     $global:deviceId = $deviceSearch.resources[0]
     
-    if (-not $deviceId) {
+    if (-not $global:deviceId) {
         Write-Log "DeviceID alınamadığı için script durduruldu"
         exit 1
     }
@@ -101,7 +101,7 @@ function Add-Group {
         action_parameters = @(
             @{
                 name  = "filter"
-                value = "(device_id:['$deviceId'])"
+                value = "(device_id:['$global:deviceId'])"
             }
         )
     }
@@ -109,7 +109,7 @@ function Add-Group {
     $response = Invoke-RestMethod -Method Post `
         -Uri "https://api.us-2.crowdstrike.com/devices/entities/host-group-actions/v1?action_name=add-hosts" `
         -Headers @{
-            "Authorization" = "Bearer $token"
+            "Authorization" = "Bearer $global:token"
             "Content-Type"  = "application/json"
         } `
         -Body ($body | ConvertTo-Json -Depth 4)
@@ -130,7 +130,7 @@ function Remove-Group {
         action_parameters = @(
             @{
                 name  = "filter"
-                value = "(device_id:['$deviceId'])"
+                value = "(device_id:['$global:deviceId'])"
             }
         )
     }
@@ -138,7 +138,7 @@ function Remove-Group {
     $response = Invoke-RestMethod -Method Post `
         -Uri "https://api.us-2.crowdstrike.com/devices/entities/host-group-actions/v1?action_name=remove-hosts" `
         -Headers @{
-            "Authorization" = "Bearer $token"
+            "Authorization" = "Bearer $global:token"
             "Content-Type"  = "application/json"
         } `
         -Body ($body | ConvertTo-Json -Depth 4)
