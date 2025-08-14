@@ -75,7 +75,7 @@ function Get-Token {
 }
 
 function Get-DeviceID {
-    $filter = [System.Web.HttpUtility]::UrlEncode("hostname:'$hostname'")
+    $filter = [uri]::EscapeDataString("hostname:'$hostname'")
     Get-Token
 
     $deviceSearch = Invoke-RestMethod -Method Get `
@@ -101,7 +101,7 @@ function Add-Group {
         action_parameters = @(
             @{
                 name  = "filter"
-                value = "(device_id:['$global:deviceId'])"
+                value = "device_id:'$($global:deviceId)'"
             }
         )
     }
@@ -112,7 +112,8 @@ function Add-Group {
             "Authorization" = "Bearer $global:token"
             "Content-Type"  = "application/json"
         } `
-        -Body ($body | ConvertTo-Json -Depth 4)
+        -Body ($body | ConvertTo-Json -Depth 4 -Compress)
+
 
     if ($response.errors) {
         Write-Log "Gruba ekleme işleminde hata meydana geldi"

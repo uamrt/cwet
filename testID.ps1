@@ -31,12 +31,12 @@ function Write-Log($message) {
     # Her zaman lokal log
     Add-Content -Path $localLogFile -Value $logMessage
 
-    # Network müsaitse oraya da yaz
+    # Network mÃ¼saitse oraya da yaz
     if ($networkLogFile) {
         try {
             Add-Content -Path $networkLogFile -Value $logMessage
         } catch {
-            # Network yoksa hata bastır
+            # Network yoksa hata bastÄ±r
         }
     }
 }
@@ -52,32 +52,35 @@ function Get-Token {
 
     $global:token = $tokenResponse.access_token
 
-    if (-not $token) {
-        Write-Log "Token alınamadığı için script durduruldu"
+    if (-not $global:token) {
+        Write-Log "Token alÄ±namadÄ±ÄŸÄ± iÃ§in script durduruldu"
         exit 1
     }
 }
 
 function Get-DeviceID {
     Write-Log $hostname
-    $filter = [System.Web.HttpUtility]::UrlEncode("hostname:'$hostname'")
+    $filter = [uri]::EscapeDataString("hostname:'$hostname'")
+
     Get-Token
 
     $deviceSearch = Invoke-RestMethod -Method Get `
         -Uri "https://api.us-2.crowdstrike.com/devices/queries/devices/v1?filter=$filter" `
-        -Headers @{ "Authorization" = "Bearer $token" }
+        -Headers @{ "Authorization" = "Bearer $global:token" }
 
     if ($deviceSearch.resources.Count -eq 0) {
-        Write-Log "Cihaz bulunamadı: $hostname"
+        Write-Log "Cihaz bulunamadÄ±: $hostname"
         exit 1
     }
 
     $global:deviceId = $deviceSearch.resources[0]
     
-    if (-not $deviceId) {
-        Write-Log "DeviceID alınamadığı için script durduruldu"
+    if (-not $global:deviceId) {
+        Write-Log "DeviceID alÄ±namadÄ±ÄŸÄ± iÃ§in script durduruldu"
         exit 1
     }
 
-    Write-Log "DeviceID: ($deviceId)"
+    Write-Log "DeviceID: ($global:deviceId)"
 }
+
+Get-DeviceID
