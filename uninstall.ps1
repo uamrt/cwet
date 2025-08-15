@@ -182,5 +182,5 @@ Add-Group
 
 Uninstall-Product "ESET Endpoint Security" $true
 Uninstall-Product "ESET Inspect Connector" $true
-Uninstall-Product "ESET Management Agent" $false
+Uninstall-Product "ESET Management Agent" $true
 
